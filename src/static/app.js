@@ -7,7 +7,8 @@ document.addEventListener("DOMContentLoaded", () => {
   // Function to fetch activities from API
    async function fetchActivities() {
     try {
-      const response = await fetch("/activities");
+      // Add a timestamp to the request to prevent cached responses
+      const response = await fetch(`/activities?ts=${Date.now()}`, { cache: 'no-store' });
       const activities = await response.json();
 
       // Clear loading message
@@ -24,21 +25,59 @@ document.addEventListener("DOMContentLoaded", () => {
         const spotsLeft = details.max_participants - details.participants.length;
 
         const participantsList = details.participants.length > 0
-          ? details.participants.map(p => `<li>${p}</li>`).join('')
-          : '<li><em>No participants yet</em></li>';
+            ? details.participants.map(p => {
+                return `<li><span class="participant-email">${p}</span><button class="unregister-btn" data-activity="${name}" data-email="${p}" title="Remove participant">✖</button></li>`;
+              }).join('')
+            : '<li><em>No participants yet</em></li>';
 
-        activityCard.innerHTML = `
-          <h4>${name}</h4>
-          <p>${details.description}</p>
-          <p><strong>Schedule:</strong> ${details.schedule}</p>
-          <p><strong>Availability:</strong> ${spotsLeft} spots left</p>
-          <div class="participants-section">
-            <strong>Participants:</strong>
-            <ul class="participants-list">
-              ${participantsList}
-            </ul>
-          </div>
-        `;
+          activityCard.innerHTML = `
+            <h4>${name}</h4>
+            <p>${details.description}</p>
+            <p><strong>Schedule:</strong> ${details.schedule}</p>
+            <p><strong>Availability:</strong> ${spotsLeft} spots left</p>
+            <div class="participants-section">
+              <strong>Participants:</strong>
+              <ul class="participants-list">
+                ${participantsList}
+              </ul>
+            </div>
+          `;
+
+          // Attach unregister handlers for newly created buttons
+          const unregisterButtons = activityCard.querySelectorAll('.unregister-btn');
+          unregisterButtons.forEach(btn => {
+            btn.addEventListener('click', async (e) => {
+              const activityName = btn.dataset.activity;
+              const email = btn.dataset.email;
+
+              try {
+                const resp = await fetch(`/activities/${encodeURIComponent(activityName)}/unregister?email=${encodeURIComponent(email)}`, {
+                  method: 'DELETE'
+                });
+
+                const result = await resp.json();
+                if (resp.ok) {
+                  messageDiv.textContent = result.message;
+                  messageDiv.className = 'success';
+                  messageDiv.classList.remove('hidden');
+                  // Refresh list and wait for it to complete so UI updates immediately
+                  await fetchActivities();
+                } else {
+                  messageDiv.textContent = result.detail || 'Failed to remove participant';
+                  messageDiv.className = 'error';
+                  messageDiv.classList.remove('hidden');
+                }
+
+                setTimeout(() => messageDiv.classList.add('hidden'), 4000);
+              } catch (err) {
+                console.error('Error unregistering participant:', err);
+                messageDiv.textContent = 'Failed to remove participant';
+                messageDiv.className = 'error';
+                messageDiv.classList.remove('hidden');
+                setTimeout(() => messageDiv.classList.add('hidden'), 4000);
+              }
+            });
+          });
 
         activitiesList.appendChild(activityCard);
 
@@ -77,7 +116,7 @@ signupForm.addEventListener("submit", async (event) => {
         signupForm.reset();
 
         // Refresh activities so the new participant appears in the activity cards
-        fetchActivities();
+        await fetchActivities();
       } else {
         messageDiv.textContent = result.detail || "An error occurred";
         messageDiv.className = "error";
